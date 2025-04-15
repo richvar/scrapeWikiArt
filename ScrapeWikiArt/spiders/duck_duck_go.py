@@ -1,7 +1,7 @@
 import scrapy
 import json
 import pandas as pd
-from ScrapWikiArt.items import ImageItem
+from ScrapeWikiArt.items import ImageItem
 
 
 class DuckDuckGoSpider(scrapy.Spider):

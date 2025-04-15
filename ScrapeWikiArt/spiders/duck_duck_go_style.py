@@ -1,5 +1,5 @@
 from duck_duck_go import DuckDuckGoSpider
-from ScrapWikiArt.items import UpdatedStyleItem
+from ScrapeWikiArt.items import UpdatedStyleItem
 
 
 class DuckDuckGoStyleSpider(DuckDuckGoSpider):

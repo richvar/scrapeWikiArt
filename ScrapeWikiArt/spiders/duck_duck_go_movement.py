@@ -1,5 +1,5 @@
 from duck_duck_go import DuckDuckGoSpider
-from ScrapWikiArt.items import UpdatedMovementItem
+from ScrapeWikiArt.items import UpdatedMovementItem
 
 
 class DuckDuckGoMovementSpider(DuckDuckGoSpider):

@@ -1,5 +1,5 @@
 from duck_duck_go import DuckDuckGoSpider
-from ScrapWikiArt.items import ArtistItem
+from ScrapeWikiArt.items import ArtistItem
 
 
 class DuckDuckGoArtistSpider(DuckDuckGoSpider):
