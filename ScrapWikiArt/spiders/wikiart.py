@@ -1,104 +1,63 @@
 import scrapy
-
 from bs4 import BeautifulSoup
 
-from ScrapWikiArt.items import ImageItem
 
-
-class WikiArtSpider(scrapy.Spider):
-    name = "wikiart"
+class WikiArtPostImpressionismSpider(scrapy.Spider):
+    name = "wikiart_post_impressionism"
     allowed_domains = ["wikiart.org"]
-    domain = "wikiart.org"
-    start_urls = ["https://www.wikiart.org/en/artists-by-nation"]
-    id = 0
+    start_urls = ["https://www.wikiart.org/en/artists-by-art-movement/post-impressionism"]
+
     custom_settings = {
-        "ITEM_PIPELINES": {
-            'scrapy.pipelines.images.ImagesPipeline': 1,
+        "FEEDS": {
+            "data/post_impressionism.csv": {"format": "csv", "overwrite": True}
         },
+        "ITEM_PIPELINES": {'scrapy.pipelines.images.ImagesPipeline': 1},
         "IMAGES_STORE": "data/img",
     }
 
     def parse(self, response):
-        for nation in response.xpath('//main/ul/li/a/@href').getall():
-            yield response.follow(nation + "/text-list", callback=self.parse_nation)
-
-    def parse_nation(self, response):
-        for artist in response.xpath('//main/div/ul/li/a/@href').getall():
-            yield response.follow(artist + "/all-works/text-list", callback=self.parse_artist)
+        # Extract artist profile URLs
+        artist_urls = response.xpath('//li/a[contains(@href, "/en/")]/@href').getall()
+        for url in artist_urls:
+            artist_page = response.urljoin(url + "/all-works/text-list")
+            yield scrapy.Request(artist_page, callback=self.parse_artist)
 
     def parse_artist(self, response):
-        for item in response.xpath('//main/div/ul/li/a/@href').getall():
-            yield response.follow(item, callback=self.parse_item)
+        # Extract painting URLs from artist's "text-list" page
+        painting_urls = response.xpath('//ul[@class="painting-list-text"]/li/a/@href').getall()
+        for painting_url in painting_urls:
+            yield response.follow(painting_url, callback=self.parse_painting)
 
-    def parse_item(self, response):
-        url = response.url
-        title = response.xpath("//article/h3/text()").get()
-        original_title_raw = response.xpath("//li[.//s[text()[contains(.,'Original Title:')]]]").get()
-        original_title = original_title_raw.replace("<li>\n            <s>Original Title:</s>\n            ", '')\
-            .replace("\n        </li>", '') if original_title_raw else original_title_raw
+    def parse_painting(self, response):
+        def extract_text(xpath_expr):
+            return response.xpath(xpath_expr).get(default="").strip()
 
-        author = response.xpath("//article/h5[@itemprop='creator']/span[@itemprop='name']/a/text()").get()
-        author_link = self.domain + response.xpath("//article/h5[@itemprop='creator']/span[@itemprop='name']/a/@href").get()
-        date = response.xpath("//li[.//s[text()[contains(.,'Date:')]]]/span[@itemprop='dateCreated']/text()").get()
+        title = extract_text("//h3/text()")
+        artist = extract_text("//h5[@itemprop='creator']//a/text()")
+        year = extract_text("//li[.//s[contains(text(),'Date:')]]/span[@itemprop='dateCreated']/text()")
+        image_url = response.xpath('//img[@itemprop="image"]/@src').get()
 
-        styles_names = response.xpath("//li[.//s[text()[contains(.,'Style:')]]]/span/a/text()").getall()
-        styles_links = map(
-            lambda style_url: self.domain + style_url,
-            response.xpath("//li[.//s[text()[contains(.,'Style:')]]]/span/a/@href").getall()
-        )
-        styles = list(zip(styles_names, styles_links))
+        styles = response.xpath("//li[.//s[contains(text(),'Style:')]]/span/a/text()").getall()
+        genres = response.xpath("//li[.//s[contains(text(),'Genre:')]]/span/a/span/text()").getall()
+        media = response.xpath("//li[.//s[contains(text(),'Media:')]]/span/a/text()").getall()
+        dimensions = extract_text("//li[.//s[contains(text(),'Dimensions:')]]/text()")
 
-        series = response.xpath("//li[.//s[text()[contains(.,'Series:')]]]/a/text()").get()
-        series_link = response.xpath("//li[.//s[text()[contains(.,'Series:')]]]/a/@href").get()
+        # Get description of painting if one exists
+        description_html = response.xpath('//div[@id="info-tab-description"]/p').get()
+        description = BeautifulSoup(description_html, "lxml").get_text(strip=True) if description_html else ""
 
-        genre = response.xpath("//li[.//s[text()[contains(.,'Genre:')]]]/span/a/span[@itemprop='genre']/text()").get()
-        genre_link = self.domain + response.xpath("//li[.//s[text()[contains(.,'Genre:')]]]/span/a/@href").get()
-
-        media = response.xpath("//li[.//s[text()[contains(.,'Media:')]]]/span/a/text()").getall()
-        location = response.xpath("//li[.//s[text()[contains(.,'Location:')]]]/span/text()").get()
-
-        dimensions_raw = response.xpath("//li[.//s[text()[contains(.,'Dimensions')]]]").get()
-        dimensions = dimensions_raw.replace('<li>\n            <s class="title">Dimensions:</s>\n            ', '')\
-            .replace("\n        </li>", '') if dimensions_raw else dimensions_raw
-
-        description_raw = response.xpath('//div[@id="info-tab-description"]/p').get()
-        description = BeautifulSoup(description_raw, features="lxml").get_text() if description_raw else description_raw
-
-        wiki_description_raw = response.xpath('//div[@id="info-tab-wikipediadescription"]/p').get()
-        wiki_description = BeautifulSoup(wiki_description_raw, features="lxml").get_text() if wiki_description_raw else wiki_description_raw
-
-        wiki_link = response.xpath('//a[@class="wiki-link"]/@href').get()
-
-        tags = response.xpath("//div[@class='tags-cheaps']/div/a/text()").getall()
-        tags = [tag.replace('\n', '').replace('\t', '').replace(' ', '') for tag in tags]
-
-        img_urls = response.xpath('//ul[@class="image-variants-container"]//a/@data-image-url').getall()
-
-        if not img_urls:
-            img_urls = [response.xpath('//img[@itemprop="image"]/@src').get()]
-        # img = f"img/full/{hashlib.sha1(img_url.encode()).hexdigest()}.{img_url.split('.')[-1]}"
-
-        yield ImageItem({
-            "Id": self.id,
-            "URL": url,
-            "Title": title,
-            "OriginalTitle": original_title,
-            "Author": author,
-            "AuthorLink": author_link,
-            "Date": date,
-            "Styles": styles,
-            "Series": series,
-            "SeriesLink": series_link,
-            "Genre": genre,
-            "GenreLink": genre_link,
-            "Media": media,
-            "Location": location,
-            "Dimensions": dimensions,
-            "Description": description,
-            "WikiDescription": wiki_description,
-            "WikiLink": wiki_link,
-            "Tags": tags,
-            "image_urls": img_urls,
-        })
-
-        self.id += 1
+        # Only scrape paintings marked as post-impressionism
+        if any("post-impressionism" in s.lower() for s in styles):
+            yield {
+                "Title": title,
+                "Artist": artist,
+                "Year": year,
+                "ImageURL": image_url,
+                "Styles": "; ".join(styles),
+                "Genres": "; ".join(genres),
+                "Media": "; ".join(media),
+                "Dimensions": dimensions,
+                "Description": description,
+                "PaintingURL": response.url,
+                "image_urls": [image_url],
+            }
